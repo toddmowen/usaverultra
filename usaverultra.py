@@ -3,6 +3,14 @@
 import sys
 from itertools import takewhile
 
+
+class History(object):
+	def __init__(self, account_type, account_number, transactions):
+		self.account_type = account_type
+		self.account_number = account_number
+		self.transactions = transactions
+
+
 def main(args):
 	if len(args) == 0:
 		sys.stderr.write('Usage: usaverultra.py FILES...\n')
@@ -47,12 +55,33 @@ def read_history(filename):
 					return m.groups()
 		error('Cannot find account number')
 
+	def get_transaction(row):
+		from datetime import datetime
+		from decimal import Decimal
+		import re
+
+		if len(row) != 5:
+			error('Transaction row with incorrect number of columns')
+		print row
+		_, s_transdate, description, s_amount, s_balance = row
+		transdate = datetime.strptime(s_transdate, '%d/%m/%Y').date()
+		amount = Decimal(s_amount.replace('$', '').replace(',', ''))
+		print s_balance
+		m = re.match(r'^\$([0-9,.]+) ([CD]R)$', s_balance)
+		balance = Decimal(m.group(1).replace(',', ''))
+		if m.group(2) == 'DR':
+			balance = -balance
+		return (transdate, description, amount, balance)
+
 	import csv
 	with open(filename, 'rb') as csvfile:
 		rows = list(csv.reader(csvfile))
 
-	head, transactions, foot = split_rows(rows)
+	head, body, foot = split_rows(rows)
 	account_type, account_number = get_account(head)
+	transactions = [get_transaction(row) for row in body
+			if not row[2].startswith('PLEASE NOTE')]
+	return History(account_type, account_number, transactions)
 
 
 if __name__ == '__main__':
