@@ -38,11 +38,21 @@ def read_history(filename):
 		body = rows[len(head):-len(foot)]
 		return head, body, foot
 
+	def get_account(rows):
+		import re
+		for row in rows:
+			if len(row) >= 2:
+				m = re.match(r'^(.*) \| (\d+)$', row[1])
+				if m:
+					return m.groups()
+		error('Cannot find account number')
+
 	import csv
 	with open(filename, 'rb') as csvfile:
 		rows = list(csv.reader(csvfile))
 
 	head, transactions, foot = split_rows(rows)
+	account_type, account_number = get_account(head)
 
 
 if __name__ == '__main__':
