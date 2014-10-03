@@ -65,7 +65,8 @@ def read_history(filename):
 		print row
 		_, s_transdate, description, s_amount, s_balance = row
 		transdate = datetime.strptime(s_transdate, '%d/%m/%Y').date()
-		amount = Decimal(s_amount.replace('$', '').replace(',', ''))
+		amount = Decimal(s_amount.replace('$', '').replace(',', '')
+				.replace('--', ''))  # workaround for double negative
 		print s_balance
 		m = re.match(r'^\$([0-9,.]+) ([CD]R)$', s_balance)
 		balance = Decimal(m.group(1).replace(',', ''))
