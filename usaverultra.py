@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import sys
-from itertools import takewhile, groupby
+from itertools import takewhile, groupby, chain
 from collections import namedtuple
 
 
@@ -11,9 +11,11 @@ Transaction = namedtuple(
 )
 
 class History(object):
-	def __init__(self, account_type, account_number, transactions):
+	def __init__(self, account_type, account_number,
+			opening_balance, transactions):
 		self.account_type = account_type
 		self.account_number = account_number
+		self.opening_balance = opening_balance
 		self.transactions = transactions
 
 
@@ -86,7 +88,10 @@ def read_history(filename):
 	account_type, account_number = get_account(head)
 	transactions = [get_transaction(row) for row in body
 			if not row[2].startswith('PLEASE NOTE')]
-	return History(account_type, account_number, transactions)
+	if len(transactions) == 0:
+		error('No transactions listed (cannot obtain account balance)')
+	opening_balance = transactions[0].balance - transactions[0].amount
+	return History(account_type, account_number, opening_balance, transactions)
 
 
 def unify_histories(histories):
@@ -127,8 +132,21 @@ def unify_histories(histories):
 	b = [t for t in histories[1].transactions
 			if not remove_corresponding(acnums[1], t, acnums[0], a)]
 
-	#getdate = lambda trans: trans.date
-	#alltrans = sorted(chain(h.transactions for h in histories), key=getdate)
+	alltrans = sorted(a + b, key=lambda trans: trans.date)
+	opening_balance = sum(h.opening_balance for h in histories)
+	return History('Unified', ' & '.join(acnums), opening_balance, alltrans)
+
+
+def print_history(history):
+	template = '{date:<10}  {description:<40}  {amount:>10}  {balance:>10}'
+	balance = history.opening_balance
+	for trans in history.transactions:
+		balance += trans.amount
+		print template.format(
+				date=trans.date.strftime('%d/%m/%Y'),
+				description=trans.description[:40],
+				amount=trans.amount,
+				balance=balance)
 
 
 if __name__ == '__main__':
