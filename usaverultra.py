@@ -147,15 +147,18 @@ def unify_histories(histories):
 
 
 def print_history(history):
-	template = '{date:<10}  {description:<40}  {amount:>10}  {balance:>10}'
+	template = '{date:<12}{description:<38}{payment:>10}{deposit:>10}{balance:>10}'
 	balance = history.opening_balance
 	for trans in history.transactions:
 		balance += trans.amount
+		if trans.amount > 0:
+			payment, deposit = '', trans.amount
+		else:
+			payment, deposit = -trans.amount, ''
 		print template.format(
 				date=trans.date.strftime('%d/%m/%Y'),
-				description=trans.description[:40],
-				amount=trans.amount,
-				balance=balance)
+				description=trans.description[:37],
+				payment=payment, deposit=deposit, balance=balance)
 
 
 if __name__ == '__main__':
