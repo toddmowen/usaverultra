@@ -86,7 +86,7 @@ def read_history(filename):
 
 	head, body, foot = split_rows(rows)
 	account_type, account_number = get_account(head)
-	transactions = [get_transaction(row) for row in body
+	transactions = [get_transaction(row) for row in reversed(body)
 			if not row[2].startswith('PLEASE NOTE')]
 	if len(transactions) == 0:
 		error('No transactions listed (cannot obtain account balance)')
