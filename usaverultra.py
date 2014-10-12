@@ -100,6 +100,10 @@ def unify_histories(histories):
 		prefix_pairs = [(fmt(x), fmt(y)) for x, y in [
 			('Sweep from {1}', 'Sweep out to {0}'),
 			('Sweep out to {1}', 'Sweep from {0}'),
+			('Sweep from {1}', 'Sweep out to {0} .'),
+			('Sweep out to {1} .', 'Sweep from {0}'),
+			('Sweep from {1}', 'Sweep into {0}'),
+			('Sweep into {1}', 'Sweep from {0}'),
 			('Funds Transfer to {1}', 'Funds Transfer'),
 			('Funds Transfer', 'Funds Transfer to {0}'),
 		]]
@@ -109,18 +113,23 @@ def unify_histories(histories):
 				co_description = trans0.description.replace(
 						prefix, co_prefix)
 				co_amount = -trans0.amount
-				break
+				if remove_transaction(translist1, trans0.date,
+						co_description, co_amount):
+					return True
 		else:
 			return False
 
-		for i, trans1 in enumerate(translist1):
-			if trans1.date == trans0.date \
-					and trans1.description == co_description \
-					and trans1.amount == co_amount:
-				translist1.pop(i)
-				return True
 
-		return False
+	def remove_transaction(translist, date, description, amount):
+		for i, trans in enumerate(translist):
+			if trans.date == date \
+					and trans.description == description \
+					and trans.amount == amount:
+				translist.pop(i)
+				return True
+		else:
+			return False
+
 
 	acnums = [h.account_number for h in histories]
 	if len(acnums) != 2 or acnums[0] == acnums[1]:
