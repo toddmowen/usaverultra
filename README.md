@@ -30,3 +30,24 @@ funds between the two accounts (both automatic "sweeps" or manual
 transfers), you can concentrate on what's important: deposits and
 withdrawals.
 
+
+How do I use it?
+----------------
+
+In it's current form, using the program demands some tech savvy.
+(If there is enough demand, I will consider producing an more
+user-friendly online version).
+
+In order to run the program, you need to have Python installed on your
+computer (Mac and Linux users, you already have it). It's been tested
+against Python 2.7, but earlier versions will probably work. It is not
+compatible with Python 3.
+
+Log onto UBank, and separately export the transaction history for both
+the USaver and Ultra accounts in CSV format. Then just run the program,
+passing it the names of the CSV files, e.g.:
+
+    ./usaverultra.py 33036_11_21_2014.csv 55446_11_21_2014.csv
+
+The output format should be self-explanatory.
+
