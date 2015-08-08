@@ -122,6 +122,8 @@ def unify_histories(histories):
 			('Sweep into {1}', 'Sweep from {0}'),
 			('Funds Transfer to {1}', 'Funds Transfer'),
 			('Funds Transfer', 'Funds Transfer to {0}'),
+			('Regular Transfer between accounts', 'Regular Transfer to {0} between accounts'),
+			('Regular Transfer to {1} between accounts', 'Regular Transfer between accounts'),
 		]]
 
 		for prefix, co_prefix in prefix_pairs:
