@@ -23,7 +23,7 @@ What's the solution?
 
 You really don't care which of the two accounts your money is in. You
 just want to know what goes in and what comes out. Conceptually, you
-treat your "USaver Ulta" as a single account. And by using this program,
+treat your "USaver Ultra" as a single account. And by using this program,
 you can combine your online transaction statements for the "USaver" and
 "Ultra" accounts into a single statement. By omitting the movement of
 funds between the two accounts (both automatic "sweeps" or manual
@@ -34,7 +34,7 @@ withdrawals.
 How do I use it?
 ----------------
 
-In it's current form, using the program demands some tech savvy.
+In its current form, using the program demands some tech savvy.
 (If there is enough demand, I will consider producing an more
 user-friendly online version).
 
