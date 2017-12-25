@@ -16,9 +16,13 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+import logging
+import argparse
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 from collections import namedtuple
+
+logger = logging.getLogger('usaverultra')
 
 Txn = namedtuple('Txn', ['id', 'date', 'amount', 'description'])
 
@@ -39,9 +43,17 @@ def read_ofx(filename):
     txn_elements = root.findall('.//STMTTRN')
     return map(mkTxn, txn_elements)
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--ofx', dest='format', action='store_const', const='ofx', default='txt',
+                    help='produce OFX output (default: text output)')
+parser.add_argument('infiles', metavar='FILE', nargs='+',
+                    help='input file, in OFX format')
+
 def main(filenames):
-    statements = [read_ofx(fn) for fn in filenames]
+    args = parser.parse_args()
+    statements = [read_ofx(fn) for fn in args.infiles]
 
 if __name__ == '__main__':
+    logging.basicConfig(format='[%(levelname)s] %(msg)s')
     import sys
     main(sys.argv[1:])
