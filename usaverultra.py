@@ -16,32 +16,52 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+import sys
 import logging
 import argparse
 import xml.etree.ElementTree as ET
 from decimal import Decimal
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 
 logger = logging.getLogger('usaverultra')
 
-Txn = namedtuple('Txn', ['id', 'date', 'amount', 'description'])
+class TerminalError(Exception):
+    '''Print message (but not stack trace) then exit program.'''
 
-def mkTxn(element):
+Statement = namedtuple('Statement', ['account', 'balance', 'transactions']);
+Transaction = namedtuple('Transaction', ['id', 'date', 'amount', 'description'])
+
+def mkTransaction(element):
     '''Construct a Txn from a STMTTRN element.'''
     id = element.find('FITID').text
     date = element.find('DTPOSTED').text
-    amount = Decimal(element.find('TRNAMT').text)
+    amount = Decimal(element.find('TRNAMT').text.replace('--', ''))  # workaround for double negative
     description = element.find('NAME').text
-    return Txn(id, date, amount, description)
+    return Transaction(id, date, amount, description)
 
 def read_ofx(filename):
-    with open(filename) as f:
-        raw_content = f.read()
+    try:
+        with open(filename) as f:
+            raw_content = f.read()
+    except IOError, e:
+        raise TerminalError(e)
     # Apparently the file is created using string interpolation; it's not valid XML.
     sanitised_content = raw_content.replace('&', '&amp;')
     root = ET.fromstring(sanitised_content)
-    txn_elements = root.findall('.//STMTTRN')
-    return map(mkTxn, txn_elements)
+    account = root.find('.//ACCTID').text
+    balance = Decimal(root.find('.//LEDGERBAL/BALAMT').text)
+    txns = [mkTransaction(elem) for elem in root.findall('.//STMTTRN')
+            if elem.find('FITID').text != 'null']
+    return Statement(account, balance, txns)
+
+def unify_statements(stmts):
+    accounts = defaultdict(list)
+    for stmt in stmts:
+        accounts[stmt.account].append(stmt)
+    acctnums = sorted(accounts.keys())
+    logger.info('Found {0} accounts ({1})'.format(len(acctnums), ', '.join(acctnums)))
+    if len(acctnums) != 2:
+        raise TerminalError('The input files must relate to TWO different accounts')
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--ofx', dest='format', action='store_const', const='ofx', default='txt',
@@ -49,11 +69,17 @@ parser.add_argument('--ofx', dest='format', action='store_const', const='ofx', d
 parser.add_argument('infiles', metavar='FILE', nargs='+',
                     help='input file, in OFX format')
 
-def main(filenames):
+def main():
     args = parser.parse_args()
     statements = [read_ofx(fn) for fn in args.infiles]
+    logger.info('Read {} input files'.format(len(statements)))
+    unified = unify_statements(statements)
+
 
 if __name__ == '__main__':
-    logging.basicConfig(format='[%(levelname)s] %(msg)s')
-    import sys
-    main(sys.argv[1:])
+    logging.basicConfig(format='[%(levelname)s] %(msg)s', level=logging.INFO)
+    try:
+        main()
+    except TerminalError, e:
+        logging.error(e)
+        sys.exit(1)
