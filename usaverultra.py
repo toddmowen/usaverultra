@@ -19,6 +19,7 @@
 import sys
 import logging
 import argparse
+import itertools
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 from collections import namedtuple, defaultdict
@@ -28,6 +29,8 @@ logger = logging.getLogger('usaverultra')
 class TerminalError(Exception):
     '''Print message (but not stack trace) then exit program.'''
 
+# Important: for each statement, transactions must be in *reverse* chronological order
+# (which is the order that UBank lists them in the OFX file).
 Statement = namedtuple('Statement', ['account', 'balance', 'transactions']);
 Transaction = namedtuple('Transaction', ['id', 'date', 'amount', 'description'])
 
@@ -54,7 +57,7 @@ def read_ofx(filename):
             if elem.find('FITID').text != 'null']
     return Statement(account, balance, txns)
 
-def unify_statements(stmts):
+def group_statements(stmts):
     accounts = defaultdict(list)
     for stmt in stmts:
         accounts[stmt.account].append(stmt)
@@ -62,6 +65,39 @@ def unify_statements(stmts):
     logger.info('Found {0} accounts ({1})'.format(len(acctnums), ', '.join(acctnums)))
     if len(acctnums) != 2:
         raise TerminalError('The input files must relate to TWO different accounts')
+    return accounts.values()
+
+def merge_statements(stmts):
+    '''Take one or more statements FOR THE SAME ACCOUNT, and merge into a single statement.'''
+
+    def count_transactions_on_most_recent_day(stmt):
+        return len(itertools.groupby(stmt.transactions, key=lambda t: t.date).next())
+
+    # First sort into *reverse* chronological order
+    def compare(*stmts):
+        dates = [s.transactions[0].date for s in stmts]
+        if dates[0] == dates[1]:
+            # A statement listing 2 transactions on the most recent day is more
+            # up-to-date than a statement listing only 1 transaction for the same day.
+            counts = [count_transactions_on_most_recent_day(s) for s in stmts]
+            return -int.__cmp__(*counts)
+        else:
+            return -str.__cmp__(*dates)
+
+    def start_date(stmt):
+        return stmt.transactions[0].date[:8]
+
+    def end_date(stmt):
+        return stmt.transactions[-1].date[:8]
+
+    logger.info('Merging {0} statements for account {1}:'.format(len(stmts), stmts[0].account))
+    ordered = sorted(stmts, cmp=compare)
+    for s in ordered:
+        logger.info('- {0} to {1} ({2} transactions)'.format(start_date(s), end_date(s), len(s.transactions)))
+
+def unify_statements(stmts):
+    groups = group_statements(stmts)
+    merged = [merge_statements(acctstmts) for acctstmts in groups]
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--ofx', dest='format', action='store_const', const='ofx', default='txt',
