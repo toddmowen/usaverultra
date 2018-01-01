@@ -32,7 +32,7 @@ class TerminalError(Exception):
 
 # Important: for each statement, transactions must be in *reverse* chronological order
 # (which is the order that UBank lists them in the OFX file).
-Statement = namedtuple('Statement', ['account', 'balance', 'transactions']);
+Statement = namedtuple('Statement', ['account', 'opening_balance', 'transactions']);
 Transaction = namedtuple('Transaction', ['id', 'date', 'amount', 'description'])
 
 def mkTransaction(element):
@@ -63,10 +63,15 @@ def read_ofx(filename):
     except ET.ParseError, e:
         raise TerminalError("Failed to parse '{0}': {1}".format(filename, e))
     account = root.find('.//ACCTID').text
-    balance = Decimal(root.find('.//LEDGERBAL/BALAMT').text)
+    ledgerbal = Decimal(root.find('.//LEDGERBAL/BALAMT').text)
     txns = [mkTransaction(elem) for elem in root.findall('.//STMTTRN')
             if elem.find('FITID').text != 'null']
-    return Statement(account, balance, txns)
+    # LEDGERBAL that UBank gives us is actually the balance *after* the earliest transaction
+    return Statement(account, ledgerbal - txns[-1].amount, txns)
+
+def closing_balance(stmt):
+    '''Calculating forward from the opening balance, compute statement closing balance.'''
+    return stmt.opening_balance + sum(txn.amount for txn in stmt.transactions)
 
 def group_statements(stmts):
     accounts = defaultdict(list)
@@ -103,8 +108,38 @@ def merge_statements(stmts):
 
     logger.info('Merging {0} statements for account {1}:'.format(len(stmts), stmts[0].account))
     ordered = sorted(stmts, cmp=compare)
+    merged = None
     for s in ordered:
-        logger.info('+ {0} to {1} ({2} transactions)'.format(start_date(s), end_date(s), len(s.transactions)))
+        logger.info('+ {0} to {1} ({2} transactions; close ${3}, open ${4}):'
+                    .format(start_date(s), end_date(s), len(s.transactions),
+                            closing_balance(s), s.opening_balance))
+        if len(s.transactions) == 0:
+            outcome = 'Ignored empty statement'
+        elif merged is None:
+            merged = s
+            outcome = 'Initialized merged statement'
+        else:
+            for (i, txn) in enumerate(s.transactions):
+                if txn == merged.transactions[-1]:
+                    assert merged.transactions[-(i+1):] == s.transactions[:(i+1)]
+                    if i >= len(merged.transactions):
+                        merged = s
+                        outcome = 'Replaced merged statement with strict supersequence'
+                    else:
+                        merged_txns = merged.transactions + s.transactions[(i+1):]
+                        merged = Statement(merged.account, s.opening_balance, merged_txns)
+                        outcome = 'Appended {0} transactions (verified precise overlap of {1} transactions)' \
+                                  .format(len(s.transactions) - i - 1, i + 1)
+                    break
+            else:
+                if merged.opening_balance == closing_balance(s):
+                    merged_txns = merged.transactions + s.transactions
+                    merged = Statement(merged.account, s.opening_balance, merged_txns)
+                    outcome = 'Appended all transactions (verified opening/closing balances align)'
+                else:
+                    raise TerminalError('Merge failure: expected closing balance ${0}, instead found ${1}'
+                                        .format(merged.opening_balance, closing_balance(s)))
+        logger.info('  ' + outcome)
 
 def unify_statements(stmts):
     groups = group_statements(stmts)
