@@ -20,6 +20,7 @@ import sys
 import logging
 import argparse
 import itertools
+import re
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 from collections import namedtuple, defaultdict
@@ -42,15 +43,25 @@ def mkTransaction(element):
     description = element.find('NAME').text
     return Transaction(id, date, amount, description)
 
+def sanitise_xml(content):
+    '''Fix common XML errors in the files that UBank provides.'''
+    for pattern, replacement in [
+        (r'&(?![a-z])', '&amp;'),  # ampersand that doesn't appear to be an entity code
+        (r'^\d\d\d\d-\d\d-\d\d</(DTSTART|DTEND)>', ''),  # delete DTSTART/DTEND missing opening tag
+    ]:
+        content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+    return content
+
 def read_ofx(filename):
     try:
         with open(filename) as f:
             raw_content = f.read()
     except IOError, e:
         raise TerminalError(e)
-    # Apparently the file is created using string interpolation; it's not valid XML.
-    sanitised_content = raw_content.replace('&', '&amp;')
-    root = ET.fromstring(sanitised_content)
+    try:
+        root = ET.fromstring(sanitise_xml(raw_content))
+    except ET.ParseError, e:
+        raise TerminalError("Failed to parse '{0}': {1}".format(filename, e))
     account = root.find('.//ACCTID').text
     balance = Decimal(root.find('.//LEDGERBAL/BALAMT').text)
     txns = [mkTransaction(elem) for elem in root.findall('.//STMTTRN')
@@ -80,9 +91,9 @@ def merge_statements(stmts):
             # A statement listing 2 transactions on the most recent day is more
             # up-to-date than a statement listing only 1 transaction for the same day.
             counts = [count_transactions_on_most_recent_day(s) for s in stmts]
-            return -int.__cmp__(*counts)
+            return -cmp(*counts)
         else:
-            return -str.__cmp__(*dates)
+            return -cmp(*dates)
 
     def start_date(stmt):
         return stmt.transactions[0].date[:8]
@@ -93,7 +104,7 @@ def merge_statements(stmts):
     logger.info('Merging {0} statements for account {1}:'.format(len(stmts), stmts[0].account))
     ordered = sorted(stmts, cmp=compare)
     for s in ordered:
-        logger.info('- {0} to {1} ({2} transactions)'.format(start_date(s), end_date(s), len(s.transactions)))
+        logger.info('+ {0} to {1} ({2} transactions)'.format(start_date(s), end_date(s), len(s.transactions)))
 
 def unify_statements(stmts):
     groups = group_statements(stmts)
