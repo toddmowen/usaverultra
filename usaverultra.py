@@ -35,6 +35,12 @@ class TerminalError(Exception):
 Statement = namedtuple('Statement', ['account', 'opening_balance', 'transactions']);
 Transaction = namedtuple('Transaction', ['id', 'date', 'amount', 'description'])
 
+def start_date(stmt):
+    return stmt.transactions[0].date[:8]
+
+def end_date(stmt):
+    return stmt.transactions[-1].date[:8]
+
 def mkTransaction(element):
     '''Construct a Txn from a STMTTRN element.'''
     id = element.find('FITID').text
@@ -81,10 +87,11 @@ def group_statements(stmts):
     logger.info('Found {0} accounts ({1})'.format(len(acctnums), ', '.join(acctnums)))
     if len(acctnums) != 2:
         raise TerminalError('The input files must relate to TWO different accounts')
-    return accounts.values()
+    # Return in sorted order, not just accounts.values()
+    return [accounts[num] for num in acctnums]
 
-def merge_statements(stmts):
-    '''Take one or more statements FOR THE SAME ACCOUNT, and merge into a single statement.'''
+def splice_statements(stmts):
+    '''Take one or more statements FOR THE SAME ACCOUNT, and concatenate into a single statement.'''
 
     def count_transactions_on_most_recent_day(stmt):
         return len(itertools.groupby(stmt.transactions, key=lambda t: t.date).next())
@@ -100,50 +107,65 @@ def merge_statements(stmts):
         else:
             return -cmp(*dates)
 
-    def start_date(stmt):
-        return stmt.transactions[0].date[:8]
-
-    def end_date(stmt):
-        return stmt.transactions[-1].date[:8]
-
-    logger.info('Merging {0} statements for account {1}:'.format(len(stmts), stmts[0].account))
+    logger.info('Splicing {0} statements for account {1}:'.format(len(stmts), stmts[0].account))
     ordered = sorted(stmts, cmp=compare)
-    merged = None
+    spliced = None
     for s in ordered:
         logger.info('+ {0} to {1} ({2} transactions; close ${3}, open ${4}):'
                     .format(start_date(s), end_date(s), len(s.transactions),
                             closing_balance(s), s.opening_balance))
         if len(s.transactions) == 0:
             outcome = 'Ignored empty statement'
-        elif merged is None:
-            merged = s
-            outcome = 'Initialized merged statement'
+        elif spliced is None:
+            spliced = s
+            outcome = 'Initialized master statement'
         else:
             for (i, txn) in enumerate(s.transactions):
-                if txn == merged.transactions[-1]:
-                    assert merged.transactions[-(i+1):] == s.transactions[:(i+1)]
-                    if i >= len(merged.transactions):
-                        merged = s
-                        outcome = 'Replaced merged statement with strict supersequence'
+                if txn == spliced.transactions[-1]:
+                    assert spliced.transactions[-(i+1):] == s.transactions[:(i+1)]
+                    if i >= len(spliced.transactions):
+                        spliced = s
+                        outcome = 'Replaced master statement with strict supersequence'
                     else:
-                        merged_txns = merged.transactions + s.transactions[(i+1):]
-                        merged = Statement(merged.account, s.opening_balance, merged_txns)
+                        spliced_txns = spliced.transactions + s.transactions[(i+1):]
+                        spliced = Statement(spliced.account, s.opening_balance, spliced_txns)
                         outcome = 'Appended {0} transactions (verified precise overlap of {1} transactions)' \
                                   .format(len(s.transactions) - i - 1, i + 1)
                     break
             else:
-                if merged.opening_balance == closing_balance(s):
-                    merged_txns = merged.transactions + s.transactions
-                    merged = Statement(merged.account, s.opening_balance, merged_txns)
+                if spliced.opening_balance == closing_balance(s):
+                    spliced_txns = spliced.transactions + s.transactions
+                    spliced = Statement(spliced.account, s.opening_balance, spliced_txns)
                     outcome = 'Appended all transactions (verified opening/closing balances align)'
                 else:
                     raise TerminalError('Merge failure: expected closing balance ${0}, instead found ${1}'
-                                        .format(merged.opening_balance, closing_balance(s)))
+                                        .format(spliced.opening_balance, closing_balance(s)))
         logger.info('  ' + outcome)
+    return spliced
+
+def merge_statements(stmt1, stmt2):
+    '''Produce a single statement from two statements for DIFFERENT ACCOUNTS.'''
+    logger.info('Merging master statements with {0} and {1} transactions'
+                .format(len(stmt1.transactions), len(stmt2.transactions)))
+    transfers = set((t.id, t.amount) for t in stmt1.transactions).intersection(
+                set((t.id, -t.amount) for t in stmt2.transactions))
+    logger.info('Removed {0} inter-account transfers'.format(len(transfers)))
+    merged_txns = sorted(
+        [t for t in stmt1.transactions if (t.id, t.amount) not in transfers] +
+        [t for t in stmt2.transactions if (t.id, -t.amount) not in transfers],
+        key=lambda t: t.date, reverse=True)
+    merged = Statement(
+        '{0}/{1}'.format(stmt1.account, stmt2.account),
+        stmt1.opening_balance + stmt2.opening_balance,
+        merged_txns)
+    logger.info('= {0} to {1} ({2} transactions; close ${3}, open ${4})'
+                .format(end_date(merged), start_date(merged), len(merged.transactions),
+                        closing_balance(merged), merged.opening_balance))
 
 def unify_statements(stmts):
     groups = group_statements(stmts)
-    merged = [merge_statements(acctstmts) for acctstmts in groups]
+    spliced = [splice_statements(acctstmts) for acctstmts in groups]
+    unified = merge_statements(*spliced)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--ofx', dest='format', action='store_const', const='ofx', default='txt',
