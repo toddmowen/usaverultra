@@ -161,11 +161,28 @@ def merge_statements(stmt1, stmt2):
     logger.info('= {0} to {1} ({2} transactions; close ${3}, open ${4})'
                 .format(end_date(merged), start_date(merged), len(merged.transactions),
                         closing_balance(merged), merged.opening_balance))
+    return merged
 
 def unify_statements(stmts):
     groups = group_statements(stmts)
     spliced = [splice_statements(acctstmts) for acctstmts in groups]
     unified = merge_statements(*spliced)
+    return unified
+
+def print_statement(stmt):
+    template = '{date:<12}{description:<38}{payment:>10}{deposit:>10}{balance:>10}'
+    balance = stmt.opening_balance
+    for trans in reversed(stmt.transactions):
+        balance += trans.amount
+        if trans.amount > 0:
+            payment, deposit = '', trans.amount
+        else:
+            payment, deposit = -trans.amount, ''
+        print template.format(
+            date='/'.join([trans.date[6:8], trans.date[4:6], trans.date[0:4]]),
+            description=trans.description[:37],
+            payment=payment, deposit=deposit, balance=balance)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--ofx', dest='format', action='store_const', const='ofx', default='txt',
@@ -178,6 +195,7 @@ def main():
     statements = [read_ofx(fn) for fn in args.infiles]
     logger.info('Read {} input files'.format(len(statements)))
     unified = unify_statements(statements)
+    print_statement(unified)
 
 
 if __name__ == '__main__':
