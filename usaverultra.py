@@ -24,6 +24,7 @@ import re
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 from collections import namedtuple, defaultdict
+from datetime import datetime
 
 logger = logging.getLogger('usaverultra')
 
@@ -36,15 +37,15 @@ Statement = namedtuple('Statement', ['account', 'opening_balance', 'transactions
 Transaction = namedtuple('Transaction', ['id', 'date', 'amount', 'description'])
 
 def start_date(stmt):
-    return stmt.transactions[0].date[:8]
+    return stmt.transactions[0].date
 
 def end_date(stmt):
-    return stmt.transactions[-1].date[:8]
+    return stmt.transactions[-1].date
 
 def mkTransaction(element):
     '''Construct a Txn from a STMTTRN element.'''
     id = element.find('FITID').text
-    date = element.find('DTPOSTED').text
+    date = datetime.strptime(element.find('DTPOSTED').text[:8], '%Y%m%d')
     amount = Decimal(element.find('TRNAMT').text.replace('--', ''))  # workaround for double negative
     description = element.find('NAME').text
     return Transaction(id, date, amount, description)
@@ -96,7 +97,7 @@ def splice_statements(stmts):
     def count_transactions_on_most_recent_day(stmt):
         return len(itertools.groupby(stmt.transactions, key=lambda t: t.date).next())
 
-    # First sort into *reverse* chronological order
+    # Sort statements in *reverse* chronological order.
     def compare(*stmts):
         dates = [s.transactions[0].date for s in stmts]
         if dates[0] == dates[1]:
@@ -163,11 +164,38 @@ def merge_statements(stmt1, stmt2):
                         closing_balance(merged), merged.opening_balance))
     return merged
 
+def clean_transactions(stmt):
+    '''Apply some UBank-specified cleaning rules to transactions.'''
+    def clean_transaction(txn):
+        m = re.match(r'^V\d\d\d\d (\d\d)/(\d\d) (.*)', txn.description)
+        if m:
+            # Use date of purchase (from the description) as the transaction date.
+            # Note that we must be careful not to call strptime until we are certain
+            # what year it is, since '29/02' will fail in a non-leap year.
+            mmdd = m.group(2) + m.group(1)
+            if mmdd > txn.date.strftime('%m%d'):
+                yyyy = str(txn.date.year + 1)
+            else:
+                yyyy = str(txn.date.year)
+            newdate = datetime.strptime(yyyy + mmdd, '%Y%m%d')
+            newdesc = m.group(3)
+            txn = txn._replace(date=newdate, description=newdesc)
+        m = re.match(r'^Purchase (.*)', txn.description)
+        if m:
+            txn = txn._replace(description=m.group(1))
+        return txn
+
+    # Dates may have been modified, so sort the transactions
+    txns = sorted([clean_transaction(t) for t in stmt.transactions],
+                  key=lambda t: t.date, reverse=True)
+    return stmt._replace(transactions=txns)
+
 def unify_statements(stmts):
     groups = group_statements(stmts)
     spliced = [splice_statements(acctstmts) for acctstmts in groups]
     unified = merge_statements(*spliced)
-    return unified
+    cleaned = clean_transactions(unified)
+    return cleaned
 
 def print_statement(stmt):
     template = '{date:<12}{description:<38}{payment:>10}{deposit:>10}{balance:>10}'
@@ -179,7 +207,7 @@ def print_statement(stmt):
         else:
             payment, deposit = -trans.amount, ''
         print template.format(
-            date='/'.join([trans.date[6:8], trans.date[4:6], trans.date[0:4]]),
+            date=trans.date.strftime('%d/%m/%Y'),
             description=trans.description[:37],
             payment=payment, deposit=deposit, balance=balance)
 
