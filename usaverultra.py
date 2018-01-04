@@ -46,7 +46,8 @@ def mkTransaction(element):
     '''Construct a Txn from a STMTTRN element.'''
     id = element.find('FITID').text
     date = datetime.strptime(element.find('DTPOSTED').text[:8], '%Y%m%d')
-    amount = Decimal(element.find('TRNAMT').text.replace('--', ''))  # workaround for double negative
+    amount_text = element.find('TRNAMT').text.replace('--', '')  # workaround for double negative
+    amount = Decimal(amount_text).quantize(Decimal('0.01'))  # fix to two decimal places
     description = element.find('NAME').text
     return Transaction(id, date, amount, description)
 
@@ -167,23 +168,31 @@ def merge_statements(stmt1, stmt2):
 def clean_transactions(stmt):
     '''Apply some UBank-specified cleaning rules to transactions.'''
     def clean_transaction(txn):
-        m = re.match(r'^V\d\d\d\d (\d\d)/(\d\d) (.*)', txn.description)
+        m = re.match(r'^(.*) (\d\d)/(\d\d)(?: \d\d:\d\d)?\b(.*)', txn.description)
         if m:
             # Use date of purchase (from the description) as the transaction date.
             # Note that we must be careful not to call strptime until we are certain
             # what year it is, since '29/02' will fail in a non-leap year.
-            mmdd = m.group(2) + m.group(1)
+            mmdd = m.group(3) + m.group(2)
             if mmdd > txn.date.strftime('%m%d'):
-                yyyy = str(txn.date.year + 1)
+                yyyy = str(txn.date.year - 1)
             else:
                 yyyy = str(txn.date.year)
             newdate = datetime.strptime(yyyy + mmdd, '%Y%m%d')
-            newdesc = m.group(3)
+            newdesc = m.group(1) + m.group(4)
             txn = txn._replace(date=newdate, description=newdesc)
         m = re.match(r'^Purchase (.*)', txn.description)
         if m:
             txn = txn._replace(description=m.group(1))
-        return txn
+        m = re.match(r'^(.*) Ref: \d+', txn.description)
+        if m:
+            # This drops the 'Ref' and also anything after, e.g. 'Frgn Amt'
+            txn = txn._replace(description=m.group(1))
+        m = re.match(r'^V\d\d\d\d (.*)', txn.description)
+        if m:
+            txn = txn._replace(description=m.group(1))
+        # Replace multiple spaces with a comma
+        return txn._replace(description=re.sub(r' {2,}', ', ', txn.description))
 
     # Dates may have been modified, so sort the transactions
     txns = sorted([clean_transaction(t) for t in stmt.transactions],
