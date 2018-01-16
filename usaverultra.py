@@ -192,8 +192,8 @@ def clean_statement(stmt):
         m = re.match(r'^V\d\d\d\d (.*)', txn.description)
         if m:
             txn = txn._replace(description=m.group(1))
-        # Replace multiple spaces with a comma
-        return txn._replace(description=re.sub(r' {2,}', ', ', txn.description))
+        # Replace multiple spaces with a comma (stripping ensures no match at start/end of string)
+        return txn._replace(description=re.sub(r' {2,}', ', ', txn.description.strip()))
 
     # Dates may have been modified, so sort the transactions
     txns = sorted([clean_transaction(t) for t in stmt.transactions],
