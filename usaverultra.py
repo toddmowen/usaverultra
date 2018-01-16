@@ -21,6 +21,7 @@ import logging
 import argparse
 import itertools
 import re
+import hashlib
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 from collections import namedtuple, defaultdict
@@ -206,7 +207,7 @@ def unify_statements(stmts):
     cleaned = clean_transactions(unified)
     return cleaned
 
-def print_statement(stmt):
+def print_txt(stmt):
     template = '{date:<12}{description:<38}{payment:>10}{deposit:>10}{balance:>10}'
     balance = stmt.opening_balance
     for trans in reversed(stmt.transactions):
@@ -220,6 +221,29 @@ def print_statement(stmt):
             description=trans.description[:37],
             payment=payment, deposit=deposit, balance=balance)
 
+def print_ofx(stmt):
+    # What is implemented here quite possibly deviates from the OFX standard (which I
+    # have not studied), but seems to be the minimum required for Moneydance.
+    ofx = ET.Element('OFX')
+    stmttrnrs = ET.SubElement(ET.SubElement(ofx, 'BANKMSGSRSV1'), 'STMTTRNRS')
+    status = ET.SubElement(stmttrnrs, 'STATUS')
+    ET.SubElement(status, 'CODE').text = '0'
+    ET.SubElement(status, 'SEVERITY').text = 'INFO'
+    stmtrs = ET.SubElement(stmttrnrs, 'STMTRS')
+    bankacctfrom = ET.SubElement(stmtrs, 'BANKACCTFROM')
+    ET.SubElement(bankacctfrom, 'ACCTID').text = stmt.account
+    banktranlist = ET.SubElement(stmtrs, 'BANKTRANLIST')
+    for txn in stmt.transactions:
+        stmttrn = ET.SubElement(banktranlist, 'STMTTRN')
+        ET.SubElement(stmttrn, 'DTPOSTED').text = txn.date.strftime('%Y%m%d120000')
+        ET.SubElement(stmttrn, 'TRNTYPE').text = 'CREDIT' if txn.amount > 0 else 'DEBIT'
+        ET.SubElement(stmttrn, 'TRNAMT').text = str(txn.amount)
+        ET.SubElement(stmttrn, 'FITID').text = txn.id
+        ET.SubElement(stmttrn, 'NAME').text = txn.description
+    # Set TRNUID to a hash of the document itself (I'm not sure whether importing programs
+    # use it at all. If so, this should be a safe choice).
+    ET.SubElement(stmttrnrs, 'TRNUID').text = hashlib.md5(ET.tostring(ofx)).hexdigest()
+    print ET.tostring(ofx)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--ofx', dest='format', action='store_const', const='ofx', default='txt',
@@ -232,7 +256,10 @@ def main():
     statements = [read_ofx(fn) for fn in args.infiles]
     logger.info('Read {} input files'.format(len(statements)))
     unified = unify_statements(statements)
-    print_statement(unified)
+    if args.format == 'txt':
+        print_txt(unified)
+    elif args.format == 'ofx':
+        print_ofx(unified)
 
 
 if __name__ == '__main__':
