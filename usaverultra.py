@@ -166,7 +166,7 @@ def merge_statements(stmt1, stmt2):
                         closing_balance(merged), merged.opening_balance))
     return merged
 
-def clean_transactions(stmt):
+def clean_statement(stmt):
     '''Apply some UBank-specified cleaning rules to transactions.'''
     def clean_transaction(txn):
         m = re.match(r'^(.*) (\d\d)/(\d\d)(?: \d\d:\d\d)?\b(.*)', txn.description)
@@ -204,8 +204,7 @@ def unify_statements(stmts):
     groups = group_statements(stmts)
     spliced = [splice_statements(acctstmts) for acctstmts in groups]
     unified = merge_statements(*spliced)
-    cleaned = clean_transactions(unified)
-    return cleaned
+    return unified
 
 def print_txt(stmt):
     template = '{date:<12}{description:<38}{payment:>10}{deposit:>10}{balance:>10}'
@@ -248,6 +247,8 @@ def print_ofx(stmt):
 parser = argparse.ArgumentParser()
 parser.add_argument('--ofx', dest='format', action='store_const', const='ofx', default='txt',
                     help='produce OFX output (default: text output)')
+parser.add_argument('--clean', dest='clean', action='store_true',
+                    help='standardise transaction description and dates')
 parser.add_argument('infiles', metavar='FILE', nargs='+',
                     help='input file, in OFX format')
 
@@ -256,6 +257,8 @@ def main():
     statements = [read_ofx(fn) for fn in args.infiles]
     logger.info('Read {} input files'.format(len(statements)))
     unified = unify_statements(statements)
+    if args.clean:
+        unified = clean_statement(unified)
     if args.format == 'txt':
         print_txt(unified)
     elif args.format == 'ofx':
