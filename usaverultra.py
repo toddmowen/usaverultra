@@ -169,7 +169,7 @@ def merge_statements(stmt1, stmt2):
 def clean_statement(stmt):
     '''Apply some UBank-specified cleaning rules to transactions.'''
     def clean_transaction(txn):
-        m = re.match(r'^(.*) (\d\d)/(\d\d)(?: \d\d:\d\d)?\b(.*)', txn.description)
+        m = re.match(r'^(.*) (\d\d)/(\d\d)(?: \d\d:\d\d)? (.*)', txn.description)
         if m:
             # Use date of purchase (from the description) as the transaction date.
             # Note that we must be careful not to call strptime until we are certain
@@ -180,7 +180,7 @@ def clean_statement(stmt):
             else:
                 yyyy = str(txn.date.year)
             newdate = datetime.strptime(yyyy + mmdd, '%Y%m%d')
-            newdesc = m.group(1) + m.group(4)
+            newdesc = m.group(1) + ' ' + m.group(4)
             txn = txn._replace(date=newdate, description=newdesc)
         m = re.match(r'^Purchase (.*)', txn.description)
         if m:
